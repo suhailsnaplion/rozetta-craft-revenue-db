@@ -1407,15 +1407,19 @@ def main():
 
     sku_cp = load_sku_cp()
 
-    uploaded = st.file_uploader("Upload Monthly Report", type=["csv", "xlsx"])
+    # ── File uploader lives in the sidebar so it's always accessible ─────────
+    with st.sidebar:
+        st.markdown("---")
+        with st.expander("📂 Upload New Monthly Report", expanded=False):
+            uploaded = st.file_uploader("Upload Monthly Report (CSV/XLSX)", type=["csv", "xlsx"], key="main_report_uploader")
 
     # ── If no file uploaded, try loading persisted data from Supabase/local ──
     if not uploaded:
         stored_df = load_uploaded_orders()
         if stored_df.empty:
-            st.info("👆 Upload a monthly CSV file to open the dashboard.")
+            st.info("👆 Use the **'Upload New Monthly Report'** section in the sidebar to get started.")
             st.markdown("### Onboarding")
-            st.markdown("1. Upload monthly order CSV/XLSX")
+            st.markdown("1. Upload monthly order CSV/XLSX via the sidebar")
             st.markdown("2. Use sidebar to upload/edit SKU cost prices")
             st.markdown("3. Confirm Logistic/Ops/Misc costs on dashboard screen")
             return
