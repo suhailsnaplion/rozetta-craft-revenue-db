@@ -1019,6 +1019,7 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     st.caption("Need to update SKU prices? Use sidebar → Cost Price Setup.")
 
     view_df = df.copy()
+    selected_month = "All"
     if "order_date" in view_df.columns:
         month_vals = sorted(view_df["order_date"].dropna().dt.to_period("M").astype(str).unique().tolist())
         month_options = ["All"] + month_vals
@@ -1036,6 +1037,20 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             view_df = view_df[view_df["order_date"].dt.to_period("M").astype(str) == selected_month].copy()
 
     sales_df = view_df[view_df["status"] == "sale"].copy()
+
+    # If fixed costs were not passed in (stored-data path), load per selected month
+    if logistic_cost == 0 and ops_cost == 0 and misc_cost == 0 and commission == 0:
+        _costs_db = load_monthly_costs()
+        if selected_month != "All" and selected_month in _costs_db:
+            _mc = _costs_db[selected_month]
+            logistic_cost = float(_mc.get("logistic_cost", 0))
+            ops_cost = float(_mc.get("ops_cost", 0))
+            misc_cost = float(_mc.get("misc_cost", 0))
+        elif selected_month == "All":
+            logistic_cost = sum(v.get("logistic_cost", 0) for v in _costs_db.values())
+            ops_cost = sum(v.get("ops_cost", 0) for v in _costs_db.values())
+            misc_cost = sum(v.get("misc_cost", 0) for v in _costs_db.values())
+
     fixed_cost = logistic_cost + ops_cost + misc_cost + commission
 
     total_revenue = sales_df["revenue"].sum()
@@ -1426,11 +1441,10 @@ def main():
 
         # Use persisted data — financials already computed, costs from Supabase
         df = stored_df.copy()
-        stored_costs = load_monthly_costs()
-        # Aggregate costs across all stored months
-        logistic_cost = sum(v.get("logistic_cost", 0) for v in stored_costs.values())
-        ops_cost = sum(v.get("ops_cost", 0) for v in stored_costs.values())
-        misc_cost = sum(v.get("misc_cost", 0) for v in stored_costs.values())
+        # Pass 0 here — page_overview will look up per-month costs from Supabase
+        logistic_cost = 0.0
+        ops_cost = 0.0
+        misc_cost = 0.0
         commission = 0.0
 
         art_filter, state_filter, time_filter = sidebar(df)
