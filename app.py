@@ -512,6 +512,9 @@ def load_uploaded_orders() -> pd.DataFrame:
                 return pd.DataFrame()
             if "order_date" in df.columns:
                 df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
+            for col in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
+                if col in df.columns:
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
             return df
         except Exception:
             _warn_storage_fallback("Supabase unavailable for uploaded orders. Falling back to local file storage.")
@@ -521,6 +524,9 @@ def load_uploaded_orders() -> pd.DataFrame:
     df = pd.read_csv(UPLOADED_ORDERS_FILE)
     if "order_date" in df.columns:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
+    for col in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     return df
 
 
