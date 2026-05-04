@@ -506,8 +506,16 @@ def load_uploaded_orders() -> pd.DataFrame:
     if client is not None:
         try:
             cols = "order_date,sku,article_type,state,status,final_amount,gt_charges,sp,cp,revenue,profit,upload_token"
-            rows = client.table("uploaded_orders").select(cols).execute().data or []
-            df = pd.DataFrame(rows)
+            all_rows = []
+            page_size = 1000
+            offset = 0
+            while True:
+                batch = client.table("uploaded_orders").select(cols).range(offset, offset + page_size - 1).execute().data or []
+                all_rows.extend(batch)
+                if len(batch) < page_size:
+                    break
+                offset += page_size
+            df = pd.DataFrame(all_rows)
             if df.empty:
                 return pd.DataFrame()
             if "order_date" in df.columns:
