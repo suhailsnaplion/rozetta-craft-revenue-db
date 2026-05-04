@@ -1409,15 +1409,44 @@ def main():
 
     uploaded = st.file_uploader("Upload Monthly Report", type=["csv", "xlsx"])
 
+    # ── If no file uploaded, try loading persisted data from Supabase/local ──
     if not uploaded:
-        st.info("👆 Upload a monthly CSV file to open the dashboard.")
-        st.markdown("### Onboarding")
-        st.markdown("1. Upload monthly order CSV/XLSX")
-        st.markdown("2. Use sidebar to upload/edit SKU cost prices")
-        st.markdown("3. Confirm Logistic/Ops/Misc costs on dashboard screen")
+        stored_df = load_uploaded_orders()
+        if stored_df.empty:
+            st.info("👆 Upload a monthly CSV file to open the dashboard.")
+            st.markdown("### Onboarding")
+            st.markdown("1. Upload monthly order CSV/XLSX")
+            st.markdown("2. Use sidebar to upload/edit SKU cost prices")
+            st.markdown("3. Confirm Logistic/Ops/Misc costs on dashboard screen")
+            return
+
+        # Use persisted data — financials already computed, costs from Supabase
+        df = stored_df.copy()
+        stored_costs = load_monthly_costs()
+        # Aggregate costs across all stored months
+        logistic_cost = sum(v.get("logistic_cost", 0) for v in stored_costs.values())
+        ops_cost = sum(v.get("ops_cost", 0) for v in stored_costs.values())
+        misc_cost = sum(v.get("misc_cost", 0) for v in stored_costs.values())
+        commission = 0.0
+
+        art_filter, state_filter, time_filter = sidebar(df)
+        monthly_cost_editor()
+        sku_cp = sku_cp_manager(df, sku_cp)
+        filtered = apply_filters(df, art_filter, state_filter)
+
+        pages = {
+            "📈 Overview": lambda: page_overview(filtered, logistic_cost, ops_cost, misc_cost, commission, time_filter),
+            "🗺️ Geography": lambda: page_geography(filtered),
+            "🔄 Returns": lambda: page_returns(filtered),
+            "❌ Cancellations": lambda: page_cancellations(filtered),
+            "💡 Insights": lambda: page_insights(filtered),
+            "🤖 AI Recommendations": lambda: page_ai_recommendations(df, "stored"),
+        }
+        selection = st.sidebar.radio("Navigate", list(pages.keys()), key="nav_stored")
+        pages[selection]()
         return
 
-    # ── Load & process ────────────────────────────────────────────────────────
+    # ── Load & process uploaded file ──────────────────────────────────────────
     try:
         df_raw = read_monthly_report(uploaded)
     except Exception as e:
