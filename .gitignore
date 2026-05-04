@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.env
+.streamlit/
+monthly_costs.json
+monthly_history.json
+sku_cost_prices.json
+uploaded_orders.csv
+/tmp/
