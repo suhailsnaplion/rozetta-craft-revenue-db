@@ -92,37 +92,53 @@ def _warn_storage_fallback(msg: str):
         st.warning(msg)
 
 
+def normalize_sku(value) -> str:
+    if value is None:
+        return ""
+    text = str(value).strip()
+    if not text or text.lower() == "nan":
+        return ""
+    return text.upper()
+
+
 def load_sku_cp():
     client = get_supabase_client()
     if client is not None:
         try:
             rows = client.table("sku_cost_prices").select("sku,cost_price").execute().data or []
             return {
-                str(r.get("sku")): float(r.get("cost_price") or 0)
+                normalize_sku(r.get("sku")): float(r.get("cost_price") or 0)
                 for r in rows
-                if r.get("sku") is not None
+                if normalize_sku(r.get("sku"))
             }
         except Exception:
             _warn_storage_fallback("Supabase unavailable for SKU cost prices. Falling back to local file storage.")
 
     if os.path.exists(SKU_CP_FILE):
         with open(SKU_CP_FILE, "r") as f:
-            return json.load(f)
+            raw = json.load(f)
+            return {normalize_sku(k): float(v or 0) for k, v in raw.items() if normalize_sku(k)}
     return {}
 
 
 def save_sku_cp(data: dict):
+    normalized_data = {
+        normalize_sku(k): float(v or 0)
+        for k, v in data.items()
+        if normalize_sku(k)
+    }
+
     client = get_supabase_client()
     if client is not None:
         try:
             now_iso = datetime.now().isoformat()
             payload = [
                 {
-                    "sku": str(k),
+                    "sku": normalize_sku(k),
                     "cost_price": float(v),
                     "updated_at": now_iso,
                 }
-                for k, v in data.items()
+                for k, v in normalized_data.items()
             ]
             if payload:
                 client.table("sku_cost_prices").upsert(payload, on_conflict="sku").execute()
@@ -131,7 +147,7 @@ def save_sku_cp(data: dict):
             _warn_storage_fallback("Supabase write failed for SKU cost prices. Falling back to local file storage.")
 
     with open(SKU_CP_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(normalized_data, f, indent=2)
 
 
 def load_monthly_history() -> dict:
@@ -829,6 +845,8 @@ def normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
         if raw in df.columns:
             rename[raw] = clean
     df = df.rename(columns=rename)
+    if "sku" in df.columns:
+        df["sku"] = df["sku"].apply(normalize_sku)
     return df
 
 
@@ -1381,6 +1399,11 @@ def main():
     apply_custom_theme()
     st.title("📦 Rozetta Craft Monthly Revenue Dashboard")
     st.caption("Upload your monthly Myntra report (CSV/XLSX) to get started.")
+
+    if get_supabase_client() is not None:
+        st.caption("Storage: Supabase")
+    else:
+        st.caption("Storage: Local fallback")
 
     sku_cp = load_sku_cp()
 
