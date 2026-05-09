@@ -305,19 +305,19 @@ def apply_custom_theme():
             }
             .stSelectbox label,
             .stSelectbox > div > div > div > div {
-                color: #ffffff !important;
+                color: #1e40af !important;
                 font-weight: 600 !important;
             }
             [data-baseweb="select"] > div {
                 background: rgba(20, 30, 50, 0.92) !important;
-                color: #ffffff !important;
+                color: #1e40af !important;
             }
             [role="listbox"] {
                 background: rgba(20, 30, 50, 0.98) !important;
                 border: 1px solid rgba(0, 212, 255, 0.3) !important;
             }
             [role="option"] {
-                color: #ffffff !important;
+                color: #1e40af !important;
                 background: transparent !important;
             }
             [role="option"][aria-selected="true"] {
