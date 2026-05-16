@@ -1486,6 +1486,26 @@ def main():
             st.markdown("3. Confirm Logistic/Ops/Misc costs on dashboard screen")
             return
 
+        # Avoid mixing historical uploads: default to active/latest upload token.
+        if "upload_token" in stored_df.columns:
+            active_token = str(st.session_state.get("active_upload_token", "")).strip()
+            chosen_token = ""
+            token_series = stored_df["upload_token"].astype(str)
+            if active_token and (token_series == active_token).any():
+                chosen_token = active_token
+            else:
+                latest_per_token = (
+                    stored_df.dropna(subset=["order_date"]) 
+                    .groupby("upload_token")["order_date"]
+                    .max()
+                    .sort_values()
+                )
+                if not latest_per_token.empty:
+                    chosen_token = str(latest_per_token.index[-1])
+            if chosen_token:
+                stored_df = stored_df[token_series == chosen_token].copy()
+                st.caption("Showing latest uploaded report by default.")
+
         # Use persisted data — financials already computed, costs from Supabase
         df = stored_df.copy()
         # Pass 0 here — page_overview will look up per-month costs from Supabase
@@ -1529,6 +1549,7 @@ def main():
 
     # ── Mandatory monthly inputs on dashboard (per uploaded sheet) ───────────
     upload_token = get_upload_token(uploaded)
+    st.session_state["active_upload_token"] = upload_token
     cfg_key = f"monthly_cfg_{upload_token}"
     if cfg_key not in st.session_state:
         st.session_state[cfg_key] = {
