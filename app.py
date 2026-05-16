@@ -561,7 +561,7 @@ def persist_uploaded_orders(df: pd.DataFrame, upload_token: str):
                     to_save[c] = pd.to_numeric(to_save[c], errors="coerce").fillna(0)
 
             # Supabase/PostgREST can reject very large payloads, so write in batches.
-            to_save = to_save.where(pd.notna(to_save), None)
+            to_save = to_save.astype(object).where(pd.notna(to_save), None)
 
             payload = to_save.to_dict(orient="records")
             if payload:
