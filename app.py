@@ -892,6 +892,14 @@ def classify_orders(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _to_numeric_series(series: pd.Series) -> pd.Series:
+    cleaned = series.astype(str).str.replace(",", "", regex=False)
+    cleaned = cleaned.str.replace("₹", "", regex=False)
+    cleaned = cleaned.str.replace(" ", "", regex=False)
+    cleaned = cleaned.replace({"nan": pd.NA, "NaN": pd.NA, "None": pd.NA, "": pd.NA})
+    return pd.to_numeric(cleaned, errors="coerce").fillna(0)
+
+
 def compute_financials(df: pd.DataFrame, sku_cp: dict) -> pd.DataFrame:
     """
     SP = prepaid final settled amount + postpaid final settled amount
@@ -900,12 +908,12 @@ def compute_financials(df: pd.DataFrame, sku_cp: dict) -> pd.DataFrame:
     Contribution (sales only) = SP - CP
     """
     # Calculate final amount (SP) by summing prepaid and postpaid
-    prepaid = pd.to_numeric(df.get("prepaid_final_amount", 0), errors="coerce").fillna(0)
-    postpaid = pd.to_numeric(df.get("postpaid_final_amount", 0), errors="coerce").fillna(0)
+    prepaid = _to_numeric_series(df.get("prepaid_final_amount", 0))
+    postpaid = _to_numeric_series(df.get("postpaid_final_amount", 0))
     df["final_amount"] = prepaid + postpaid
     df["sp"] = df["final_amount"]
 
-    df["cp"] = df["sku"].map(sku_cp).fillna(0)
+    df["cp"] = _to_numeric_series(df["sku"].map(sku_cp).fillna(0))
     df["revenue"] = df.apply(lambda r: r["sp"] if r["status"] == "sale" else 0, axis=1)
     df["profit"] = df.apply(lambda r: (r["sp"] - r["cp"]) if r["status"] == "sale" else 0, axis=1)
     return df
