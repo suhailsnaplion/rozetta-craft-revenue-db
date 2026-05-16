@@ -54,19 +54,14 @@ SUPABASE_URL = _read_secret("SUPABASE_URL")
 SUPABASE_KEY = _read_secret("SUPABASE_KEY")
 
 COLUMN_MAP = {
-    "created on": "order_date",
-    "seller sku code": "sku",
+    "order created on": "order_date",
+    "sku code": "sku",
     "article type": "article_type",
-    "cancellation reason": "cancel_reason",
-    "cancelled on": "cancelled_on",
-    "return creation date": "return_date",
-    "final amount": "final_amount",
-    "gt charges": "gt_charges",
-    "state": "state",
-    "city": "city",
-    "selling price": "selling_price_col",   # may already be in file
-    "commission": "commission_col",          # may already be in file
-    "cost price": "cost_price_col",          # may already be in file
+    "cancelled on date": "cancelled_on",
+    "return on date": "return_date",
+    "shipping location state": "state",
+    "prepaid final settled amount": "prepaid_final_amount",
+    "postpaid final settled amount": "postpaid_final_amount",
 }
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -486,11 +481,11 @@ def apply_custom_theme():
 def validate_input_file_columns(df_raw: pd.DataFrame):
     cols = [c.strip().lower() for c in df_raw.columns]
     required = [
-        "created on",
-        "seller sku code",
+        "order created on",
+        "sku code",
         "article type",
-        "final amount",
-        "gt charges",
+        "prepaid final settled amount",
+        "postpaid final settled amount",
     ]
     missing = [c for c in required if c not in cols]
     if missing:
@@ -889,15 +884,17 @@ def classify_orders(df: pd.DataFrame) -> pd.DataFrame:
 
 def compute_financials(df: pd.DataFrame, sku_cp: dict) -> pd.DataFrame:
     """
-    SP = final_amount - gt_charges
+    SP = prepaid final settled amount + postpaid final settled amount
     Revenue (sales only) = SP
     Product cost (sales only) = CP
     Contribution (sales only) = SP - CP
     """
-    df["final_amount"] = pd.to_numeric(df.get("final_amount", 0), errors="coerce").fillna(0)
-    df["gt_charges"]   = pd.to_numeric(df.get("gt_charges",   0), errors="coerce").fillna(0)
+    # Calculate final amount (SP) by summing prepaid and postpaid
+    prepaid = pd.to_numeric(df.get("prepaid_final_amount", 0), errors="coerce").fillna(0)
+    postpaid = pd.to_numeric(df.get("postpaid_final_amount", 0), errors="coerce").fillna(0)
+    df["final_amount"] = prepaid + postpaid
+    df["sp"] = df["final_amount"]
 
-    df["sp"] = df["final_amount"] - df["gt_charges"]
     df["cp"] = df["sku"].map(sku_cp).fillna(0)
     df["revenue"] = df.apply(lambda r: r["sp"] if r["status"] == "sale" else 0, axis=1)
     df["profit"] = df.apply(lambda r: (r["sp"] - r["cp"]) if r["status"] == "sale" else 0, axis=1)
