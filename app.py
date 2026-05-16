@@ -859,16 +859,24 @@ def normalise_columns(df: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def _parse_date_series(series: pd.Series) -> pd.Series:
+    cleaned = series.copy()
+    if cleaned.dtype == object:
+        cleaned = cleaned.astype(str).str.strip()
+        cleaned = cleaned.replace({"": pd.NA, "nan": pd.NA, "NaN": pd.NA, "0": pd.NA, "0.0": pd.NA, "-": pd.NA, "--": pd.NA})
+    parsed = pd.to_datetime(cleaned, errors="coerce", dayfirst=False)
+    needs_fallback = parsed.isna()
+    if needs_fallback.any():
+        fallback_source = cleaned if hasattr(cleaned, "loc") else pd.Series(cleaned)
+        parsed_fallback = pd.to_datetime(fallback_source.loc[needs_fallback], errors="coerce", dayfirst=True)
+        parsed.loc[needs_fallback] = parsed_fallback
+    return parsed
+
+
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
     for col in ["order_date", "cancelled_on", "return_date"]:
         if col in df.columns:
-            # Parse ISO-style values first, then fallback to day-first for dd/mm/yyyy inputs.
-            parsed = pd.to_datetime(df[col], errors="coerce", dayfirst=False)
-            needs_fallback = parsed.isna()
-            if needs_fallback.any():
-                parsed_fallback = pd.to_datetime(df.loc[needs_fallback, col], errors="coerce", dayfirst=True)
-                parsed.loc[needs_fallback] = parsed_fallback
-            df[col] = parsed
+            df[col] = _parse_date_series(df[col])
     return df
 
 
@@ -876,9 +884,11 @@ def classify_orders(df: pd.DataFrame) -> pd.DataFrame:
     """Tag each row as: sale / cancelled / returned."""
     df["status"] = "sale"
     if "cancelled_on" in df.columns:
-        df.loc[df["cancelled_on"].notna(), "status"] = "cancelled"
+        cancelled_mask = df["cancelled_on"].notna()
+        df.loc[cancelled_mask, "status"] = "cancelled"
     if "return_date" in df.columns:
-        df.loc[df["return_date"].notna(), "status"] = "returned"
+        return_mask = df["return_date"].notna()
+        df.loc[return_mask, "status"] = "returned"
     return df
 
 
