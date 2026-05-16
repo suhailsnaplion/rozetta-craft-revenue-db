@@ -1040,7 +1040,7 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             selected_month = st.selectbox(
                 "Month",
                 month_options,
-                index=0,
+                index=len(month_options) - 1,
                 key="overview_month_filter",
                 label_visibility="collapsed",
             )
@@ -1076,43 +1076,41 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     c3.metric("📦 Logistic + Ops + Misc", format_inr(fixed_cost))
     c4.metric("✅ Net Profit", format_inr(total_profit), delta=f"{'▲' if total_profit >= 0 else '▼'} {abs(total_profit):,.0f}")
 
-    # Persistent trendline based on all previously uploaded files.
-    stored = load_uploaded_orders()
-    if not stored.empty:
-        stored_sales = stored[stored["status"] == "sale"].copy()
-        if not stored_sales.empty and "order_date" in stored_sales.columns:
-            stored_sales["month"] = stored_sales["order_date"].dt.to_period("M").astype(str)
-            trend = stored_sales.groupby("month").agg(
-                Revenue=("revenue", "sum"),
-                ProductCost=("cp", "sum"),
-            ).reset_index().sort_values("month")
+    # Trendline based on the current data selection, not all historical uploads.
+    if not sales_df.empty and "order_date" in sales_df.columns:
+        trend_source = sales_df.copy()
+        trend_source["month"] = trend_source["order_date"].dt.to_period("M").astype(str)
+        trend = trend_source.groupby("month").agg(
+            Revenue=("revenue", "sum"),
+            ProductCost=("cp", "sum"),
+        ).reset_index().sort_values("month")
 
-            costs = load_monthly_costs()
-            trend["FixedCosts"] = trend["month"].apply(
-                lambda m: float(costs.get(m, {}).get("logistic_cost", 0))
-                + float(costs.get(m, {}).get("ops_cost", 0))
-                + float(costs.get(m, {}).get("misc_cost", 0))
-            )
-            trend["Cost"] = trend["ProductCost"] + trend["FixedCosts"]
-            trend["Profit"] = trend["Revenue"] - trend["Cost"]
+        costs = load_monthly_costs()
+        trend["FixedCosts"] = trend["month"].apply(
+            lambda m: float(costs.get(m, {}).get("logistic_cost", 0))
+            + float(costs.get(m, {}).get("ops_cost", 0))
+            + float(costs.get(m, {}).get("misc_cost", 0))
+        )
+        trend["Cost"] = trend["ProductCost"] + trend["FixedCosts"]
+        trend["Profit"] = trend["Revenue"] - trend["Cost"]
 
-            st.subheader("📅 Month-on-Month Trend (All Uploaded Reports)")
-            fig_trend = px.line(
-                trend,
-                x="month",
-                y=["Revenue", "Cost", "Profit"],
-                markers=True,
-                title="MoM Revenue vs Cost vs Profit",
-            )
-            for trace in fig_trend.data:
-                trace.text = [format_inr_short(v) for v in trace.y]
-                trace.textposition = "top center"
-                trace.hovertemplate = "%{x}<br>%{fullData.name}: ₹%{y:,.0f}<extra></extra>"
-            max_val = trend[["Revenue", "Cost", "Profit"]].to_numpy().max() if not trend.empty else 1
-            tick_vals, tick_text = make_lakh_ticks(max_val)
-            fig_trend.update_yaxes(tickmode="array", tickvals=tick_vals, ticktext=tick_text)
-            fig_trend = style_figure(fig_trend)
-            st.plotly_chart(fig_trend, use_container_width=True)
+        st.subheader("📅 Month-on-Month Trend")
+        fig_trend = px.line(
+            trend,
+            x="month",
+            y=["Revenue", "Cost", "Profit"],
+            markers=True,
+            title="MoM Revenue vs Cost vs Profit",
+        )
+        for trace in fig_trend.data:
+            trace.text = [format_inr_short(v) for v in trace.y]
+            trace.textposition = "top center"
+            trace.hovertemplate = "%{x}<br>%{fullData.name}: ₹%{y:,.0f}<extra></extra>"
+        max_val = trend[["Revenue", "Cost", "Profit"]].to_numpy().max() if not trend.empty else 1
+        tick_vals, tick_text = make_lakh_ticks(max_val)
+        fig_trend.update_yaxes(tickmode="array", tickvals=tick_vals, ticktext=tick_text)
+        fig_trend = style_figure(fig_trend)
+        st.plotly_chart(fig_trend, use_container_width=True)
 
     with st.expander("🧮 Calculation Breakdown", expanded=False):
         st.write("Revenue (SP) = Prepaid Final Settled Amount + Postpaid Final Settled Amount")
