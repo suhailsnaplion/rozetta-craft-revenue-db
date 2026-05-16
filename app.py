@@ -500,7 +500,7 @@ def load_uploaded_orders() -> pd.DataFrame:
     client = get_supabase_client()
     if client is not None:
         try:
-            cols = "order_date,sku,article_type,state,status,final_amount,gt_charges,sp,cp,revenue,profit,upload_token"
+            cols = "order_date,sku,article_type,state,status,final_amount,sp,cp,revenue,profit,upload_token"
             all_rows = []
             page_size = 1000
             offset = 0
@@ -515,7 +515,7 @@ def load_uploaded_orders() -> pd.DataFrame:
                 return pd.DataFrame()
             if "order_date" in df.columns:
                 df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
-            for col in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
+            for col in ["final_amount", "sp", "cp", "revenue", "profit"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
             return df
@@ -527,7 +527,7 @@ def load_uploaded_orders() -> pd.DataFrame:
     df = pd.read_csv(UPLOADED_ORDERS_FILE)
     if "order_date" in df.columns:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
-    for col in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
+    for col in ["final_amount", "sp", "cp", "revenue", "profit"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     return df
@@ -536,7 +536,7 @@ def load_uploaded_orders() -> pd.DataFrame:
 def persist_uploaded_orders(df: pd.DataFrame, upload_token: str):
     persist_cols = [
         "order_date", "sku", "article_type", "state", "status",
-        "final_amount", "gt_charges", "sp", "cp", "revenue", "profit",
+        "final_amount", "sp", "cp", "revenue", "profit",
     ]
     to_save = df.copy()
     for c in persist_cols:
@@ -556,7 +556,7 @@ def persist_uploaded_orders(df: pd.DataFrame, upload_token: str):
             if exists:
                 return
 
-            for c in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
+            for c in ["final_amount", "sp", "cp", "revenue", "profit"]:
                 if c in to_save.columns:
                     to_save[c] = pd.to_numeric(to_save[c], errors="coerce").fillna(0)
 
@@ -1069,10 +1069,9 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     total_cost = total_cp + fixed_cost
     total_profit = total_revenue - total_cost
     total_sp = sales_df["sp"].sum()
-    total_gt = sales_df["gt_charges"].sum()
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("💰 Total Revenue (SP after GT)", format_inr(total_revenue))
+    c1.metric("💰 Total Revenue (SP)", format_inr(total_revenue))
     c2.metric("🏷️ Total Product Cost (CP)", format_inr(total_cp))
     c3.metric("📦 Logistic + Ops + Misc", format_inr(fixed_cost))
     c4.metric("✅ Net Profit", format_inr(total_profit), delta=f"{'▲' if total_profit >= 0 else '▼'} {abs(total_profit):,.0f}")
@@ -1116,11 +1115,9 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             st.plotly_chart(fig_trend, use_container_width=True)
 
     with st.expander("🧮 Calculation Breakdown", expanded=False):
-        st.write("Revenue = (Final Amount - GT Charges) for delivered orders")
+        st.write("Revenue (SP) = Prepaid Final Settled Amount + Postpaid Final Settled Amount")
         st.write("Cost = Cost Price (CP) + Logistic Cost + Ops Cost + Misc Cost")
         st.write("Net Profit = Revenue - Cost")
-        st.write(f"Final Amount (delivered): {format_inr(sales_df['final_amount'].sum())}")
-        st.write(f"Less GT Charges: {format_inr(total_gt)}")
         st.write(f"Revenue (SP): {format_inr(total_sp)}")
         st.write(f"Cost Price Total: {format_inr(total_cp)}")
         st.write(f"Logistic Cost: {format_inr(logistic_cost)}")
