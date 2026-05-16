@@ -54,7 +54,7 @@ SUPABASE_URL = _read_secret("SUPABASE_URL")
 SUPABASE_KEY = _read_secret("SUPABASE_KEY")
 
 COLUMN_MAP = {
-    "order created on": "order_date",
+    "settlement due date": "order_date",
     "sku code": "sku",
     "article type": "article_type",
     "cancelled on date": "cancelled_on",
@@ -481,7 +481,7 @@ def apply_custom_theme():
 def validate_input_file_columns(df_raw: pd.DataFrame):
     cols = [c.strip().lower() for c in df_raw.columns]
     required = [
-        "order created on",
+        "settlement due date",
         "sku code",
         "article type",
         "prepaid final settled amount",
