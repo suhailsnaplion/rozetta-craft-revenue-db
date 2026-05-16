@@ -863,13 +863,30 @@ def _parse_date_series(series: pd.Series) -> pd.Series:
     cleaned = series.copy()
     if cleaned.dtype == object:
         cleaned = cleaned.astype(str).str.strip()
-        cleaned = cleaned.replace({"": pd.NA, "nan": pd.NA, "NaN": pd.NA, "0": pd.NA, "0.0": pd.NA, "-": pd.NA, "--": pd.NA})
-    parsed = pd.to_datetime(cleaned, errors="coerce", dayfirst=False)
-    needs_fallback = parsed.isna()
-    if needs_fallback.any():
-        fallback_source = cleaned if hasattr(cleaned, "loc") else pd.Series(cleaned)
-        parsed_fallback = pd.to_datetime(fallback_source.loc[needs_fallback], errors="coerce", dayfirst=True)
-        parsed.loc[needs_fallback] = parsed_fallback
+        cleaned = cleaned.replace({"": pd.NA, "nan": pd.NA, "NaN": pd.NA, "None": pd.NA, "0": pd.NA, "0.0": pd.NA, "-": pd.NA, "--": pd.NA})
+
+    numeric = pd.to_numeric(cleaned, errors="coerce")
+    looks_like_excel_serial = numeric.notna() & (numeric > 1000)
+    parsed = pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
+
+    if looks_like_excel_serial.any():
+        parsed.loc[looks_like_excel_serial] = pd.to_datetime(
+            numeric.loc[looks_like_excel_serial],
+            unit="D",
+            origin="1899-12-30",
+            errors="coerce",
+        )
+
+    text_mask = numeric.isna()
+    if text_mask.any():
+        text_source = cleaned.loc[text_mask]
+        text_parsed = pd.to_datetime(text_source, errors="coerce", dayfirst=False)
+        needs_fallback = text_parsed.isna()
+        if needs_fallback.any():
+            parsed_fallback = pd.to_datetime(text_source.loc[needs_fallback], errors="coerce", dayfirst=True)
+            text_parsed.loc[needs_fallback] = parsed_fallback
+        parsed.loc[text_mask] = text_parsed
+
     return parsed
 
 
