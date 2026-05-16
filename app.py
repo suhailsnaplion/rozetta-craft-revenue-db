@@ -560,12 +560,18 @@ def persist_uploaded_orders(df: pd.DataFrame, upload_token: str):
                 if c in to_save.columns:
                     to_save[c] = pd.to_numeric(to_save[c], errors="coerce").fillna(0)
 
+            # Supabase/PostgREST can reject very large payloads, so write in batches.
+            to_save = to_save.where(pd.notna(to_save), None)
+
             payload = to_save.to_dict(orient="records")
             if payload:
-                client.table("uploaded_orders").insert(payload).execute()
+                batch_size = 500
+                for start in range(0, len(payload), batch_size):
+                    batch = payload[start:start + batch_size]
+                    client.table("uploaded_orders").insert(batch).execute()
             return
-        except Exception:
-            _warn_storage_fallback("Supabase write failed for uploaded orders. Falling back to local file storage.")
+        except Exception as e:
+            _warn_storage_fallback(f"Supabase write failed for uploaded orders ({type(e).__name__}: {e}). Falling back to local file storage.")
 
     existing = load_uploaded_orders()
     if not existing.empty and "upload_token" in existing.columns:
