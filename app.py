@@ -1574,14 +1574,13 @@ def main():
         st.error("⚠️ Some SKUs are missing cost price. Please enter values below to proceed.")
         st.caption("This is required for accurate revenue/profit calculation for the current upload.")
 
-        entered_cp = {}
         cols_per_row = 3
         rows = [missing_cp[i:i+cols_per_row] for i in range(0, len(missing_cp), cols_per_row)]
 
         for row in rows:
             cols = st.columns(cols_per_row)
             for col, sku in zip(cols, row):
-                entered_cp[sku] = col.number_input(
+                col.number_input(
                     f"Cost Price for {sku}",
                     min_value=0.0,
                     value=0.0,
@@ -1590,6 +1589,8 @@ def main():
                 )
 
         if st.button("✅ Confirm and Proceed", type="primary"):
+            # Fetch values from session state (where Streamlit stores input values)
+            entered_cp = {s: st.session_state.get(f"missing_cp_{s}", 0) for s in missing_cp}
             unresolved = [s for s in missing_cp if entered_cp.get(s, 0) == 0]
             if unresolved:
                 st.warning(f"Please enter cost price for: {', '.join(unresolved)}")
