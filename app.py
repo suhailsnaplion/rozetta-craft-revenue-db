@@ -886,10 +886,11 @@ def _parse_date_series(series: pd.Series) -> pd.Series:
     text_mask = numeric.isna()
     if text_mask.any():
         text_source = cleaned.loc[text_mask]
-        text_parsed = pd.to_datetime(text_source, errors="coerce", dayfirst=False)
+        # Indian reports are typically dd/mm/yyyy, so parse day-first first.
+        text_parsed = pd.to_datetime(text_source, errors="coerce", dayfirst=True)
         needs_fallback = text_parsed.isna()
         if needs_fallback.any():
-            parsed_fallback = pd.to_datetime(text_source.loc[needs_fallback], errors="coerce", dayfirst=True)
+            parsed_fallback = pd.to_datetime(text_source.loc[needs_fallback], errors="coerce", dayfirst=False)
             text_parsed.loc[needs_fallback] = parsed_fallback
         parsed.loc[text_mask] = text_parsed
 
