@@ -952,6 +952,8 @@ def classify_orders(df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _to_numeric_series(series: pd.Series) -> pd.Series:
+    if not isinstance(series, pd.Series):
+        series = pd.Series([series])
     cleaned = series.astype(str).str.replace(",", "", regex=False)
     cleaned = cleaned.str.replace("₹", "", regex=False)
     cleaned = cleaned.str.replace(" ", "", regex=False)
