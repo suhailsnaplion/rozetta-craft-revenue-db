@@ -54,7 +54,6 @@ SUPABASE_URL = _read_secret("SUPABASE_URL")
 SUPABASE_KEY = _read_secret("SUPABASE_KEY")
 
 COLUMN_MAP = {
-    "settlement due date": "order_date",
     "sku code": "sku",
     "article type": "article_type",
     "cancelled on date": "cancelled_on",
@@ -63,6 +62,42 @@ COLUMN_MAP = {
     "prepaid final settled amount": "prepaid_final_amount",
     "postpaid final settled amount": "postpaid_final_amount",
 }
+
+PREPAID_DEDUCTION_COLS = [
+    "prepaid_sjit_incentive_amount",
+    "prepaid_platform_funded_coupon",
+    "prepaid_commission",
+    "prepaid_commission_discount",
+    "prepaid_tcs_amount",
+    "prepaid_tds_amount",
+    "prepaid_tech_enablement_charges",
+    "prepaid_pick_and_pack_fees",
+    "prepaid_forward_additional_charges",
+    "prepaid_collection_cost",
+    "prepaid_fixed_cost",
+    "prepaid_reverse_additional_charges",
+    "prepaid_total_tax_on_logistics",
+    "prepaid_shipping_fee",
+    "prepaid_payment_gateway_fee",
+]
+
+POSTPAID_DEDUCTION_COLS = [
+    "postpaid_sjit_incentive_amount",
+    "postpaid_platform_funded_coupon",
+    "postpaid_commission",
+    "postpaid_commission_discount",
+    "postpaid_tcs_amount",
+    "postpaid_tds_amount",
+    "postpaid_tech_enablement_charges",
+    "postpaid_pick_and_pack_fees",
+    "postpaid_forward_additional_charges",
+    "postpaid_collection_cost",
+    "postpaid_fixed_cost",
+    "postpaid_reverse_additional_charges",
+    "postpaid_total_tax_on_logistics",
+    "postpaid_shipping_fee",
+    "postpaid_payment_gateway_fee",
+]
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -481,7 +516,6 @@ def apply_custom_theme():
 def validate_input_file_columns(df_raw: pd.DataFrame):
     cols = [c.strip().lower() for c in df_raw.columns]
     required = [
-        "settlement due date",
         "sku code",
         "article type",
         "prepaid final settled amount",
@@ -500,7 +534,7 @@ def load_uploaded_orders() -> pd.DataFrame:
     client = get_supabase_client()
     if client is not None:
         try:
-            cols = "order_date,sku,article_type,state,status,final_amount,sp,cp,revenue,profit,upload_token"
+            cols = "order_date,sku,article_type,state,status,final_amount,gt_charges,sp,cp,revenue,profit,upload_token"
             all_rows = []
             page_size = 1000
             offset = 0
@@ -515,7 +549,7 @@ def load_uploaded_orders() -> pd.DataFrame:
                 return pd.DataFrame()
             if "order_date" in df.columns:
                 df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
-            for col in ["final_amount", "sp", "cp", "revenue", "profit"]:
+            for col in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
                 if col in df.columns:
                     df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
             return df
@@ -527,7 +561,7 @@ def load_uploaded_orders() -> pd.DataFrame:
     df = pd.read_csv(UPLOADED_ORDERS_FILE)
     if "order_date" in df.columns:
         df["order_date"] = pd.to_datetime(df["order_date"], errors="coerce")
-    for col in ["final_amount", "sp", "cp", "revenue", "profit"]:
+    for col in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
         if col in df.columns:
             df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0)
     return df
@@ -536,7 +570,7 @@ def load_uploaded_orders() -> pd.DataFrame:
 def persist_uploaded_orders(df: pd.DataFrame, upload_token: str):
     persist_cols = [
         "order_date", "sku", "article_type", "state", "status",
-        "final_amount", "sp", "cp", "revenue", "profit",
+        "final_amount", "gt_charges", "sp", "cp", "revenue", "profit",
     ]
     to_save = df.copy()
     for c in persist_cols:
@@ -556,7 +590,7 @@ def persist_uploaded_orders(df: pd.DataFrame, upload_token: str):
             if exists:
                 return
 
-            for c in ["final_amount", "sp", "cp", "revenue", "profit"]:
+            for c in ["final_amount", "gt_charges", "sp", "cp", "revenue", "profit"]:
                 if c in to_save.columns:
                     to_save[c] = pd.to_numeric(to_save[c], errors="coerce").fillna(0)
 
@@ -924,17 +958,31 @@ def _to_numeric_series(series: pd.Series) -> pd.Series:
     return pd.to_numeric(cleaned, errors="coerce").fillna(0)
 
 
+def _sum_numeric_columns(df: pd.DataFrame, columns: list[str]) -> pd.Series:
+    total = pd.Series(0.0, index=df.index)
+    for column in columns:
+        if column in df.columns:
+            total = total + _to_numeric_series(df[column])
+    return total
+
+
 def compute_financials(df: pd.DataFrame, sku_cp: dict) -> pd.DataFrame:
     """
-    SP = prepaid final settled amount + postpaid final settled amount
+    SP = prepaid final settled amount + postpaid final settled amount - deductions
     Revenue (sales only) = SP
     Product cost (sales only) = CP
     Contribution (sales only) = SP - CP
     """
-    # Calculate final amount (SP) by summing prepaid and postpaid
+    # Calculate net settled amount by subtracting prepaid/postpaid deductions.
     prepaid = _to_numeric_series(df.get("prepaid_final_amount", 0))
     postpaid = _to_numeric_series(df.get("postpaid_final_amount", 0))
-    df["final_amount"] = prepaid + postpaid
+    prepaid_deductions = _sum_numeric_columns(df, PREPAID_DEDUCTION_COLS)
+    postpaid_deductions = _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)
+    deductions_total = prepaid_deductions + postpaid_deductions
+
+    df["gross_settled_amount"] = prepaid + postpaid
+    df["gt_charges"] = deductions_total
+    df["final_amount"] = df["gross_settled_amount"] - deductions_total
     df["sp"] = df["final_amount"]
 
     df["cp"] = _to_numeric_series(df["sku"].map(sku_cp).fillna(0))
@@ -1091,31 +1139,17 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
 
     sales_df = view_df[view_df["status"] == "sale"].copy()
 
-    # If fixed costs were not passed in (stored-data path), load per selected month
-    if logistic_cost == 0 and ops_cost == 0 and misc_cost == 0 and commission == 0:
-        _costs_db = load_monthly_costs()
-        if selected_month != "All" and selected_month in _costs_db:
-            _mc = _costs_db[selected_month]
-            logistic_cost = float(_mc.get("logistic_cost", 0))
-            ops_cost = float(_mc.get("ops_cost", 0))
-            misc_cost = float(_mc.get("misc_cost", 0))
-        elif selected_month == "All":
-            logistic_cost = sum(v.get("logistic_cost", 0) for v in _costs_db.values())
-            ops_cost = sum(v.get("ops_cost", 0) for v in _costs_db.values())
-            misc_cost = sum(v.get("misc_cost", 0) for v in _costs_db.values())
-
-    fixed_cost = logistic_cost + ops_cost + misc_cost + commission
-
     total_revenue = sales_df["revenue"].sum()
     total_cp = sales_df["cp"].sum()
-    total_cost = total_cp + fixed_cost
+    total_cost = total_cp
     total_profit = total_revenue - total_cost
     total_sp = sales_df["sp"].sum()
+    total_lom = float(logistic_cost + ops_cost + misc_cost + commission)
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("💰 Total Revenue (SP)", format_inr(total_revenue))
     c2.metric("🏷️ Total Product Cost (CP)", format_inr(total_cp))
-    c3.metric("📦 Logistic + Ops + Misc", format_inr(fixed_cost))
+    c3.metric("📦 Logistic + Ops + Misc", format_inr(total_lom))
     c4.metric("✅ Net Profit", format_inr(total_profit), delta=f"{'▲' if total_profit >= 0 else '▼'} {abs(total_profit):,.0f}")
 
     # Trendline based on the current data selection, not all historical uploads.
@@ -1127,13 +1161,7 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             ProductCost=("cp", "sum"),
         ).reset_index().sort_values("month")
 
-        costs = load_monthly_costs()
-        trend["FixedCosts"] = trend["month"].apply(
-            lambda m: float(costs.get(m, {}).get("logistic_cost", 0))
-            + float(costs.get(m, {}).get("ops_cost", 0))
-            + float(costs.get(m, {}).get("misc_cost", 0))
-        )
-        trend["Cost"] = trend["ProductCost"] + trend["FixedCosts"]
+        trend["Cost"] = trend["ProductCost"]
         trend["Profit"] = trend["Revenue"] - trend["Cost"]
 
         st.subheader("📅 Month-on-Month Trend")
@@ -1155,15 +1183,13 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
         st.plotly_chart(fig_trend, use_container_width=True)
 
     with st.expander("🧮 Calculation Breakdown", expanded=False):
-        st.write("Revenue (SP) = Prepaid Final Settled Amount + Postpaid Final Settled Amount")
-        st.write("Cost = Cost Price (CP) + Logistic Cost + Ops Cost + Misc Cost")
-        st.write("Net Profit = Revenue - Cost")
+        st.write("Revenue (SP) = Prepaid Final Settled Amount + Postpaid Final Settled Amount - deduction columns")
+        st.write("Cost = Cost Price (CP)")
+        st.write("Logistic + Ops + Misc = sum of the deduction columns or user override")
+        st.write("Net Profit = Revenue - CP")
         st.write(f"Revenue (SP): {format_inr(total_sp)}")
         st.write(f"Cost Price Total: {format_inr(total_cp)}")
-        st.write(f"Logistic Cost: {format_inr(logistic_cost)}")
-        st.write(f"Ops Cost: {format_inr(ops_cost)}")
-        st.write(f"Misc Cost: {format_inr(misc_cost)}")
-        st.write(f"Commission: {format_inr(commission)}")
+        st.write(f"Logistic + Ops + Misc: {format_inr(total_lom)}")
         st.write(f"Total Cost: {format_inr(total_cost)}")
         st.write(f"Net Profit: {format_inr(total_profit)}")
 
@@ -1182,7 +1208,7 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             CostCP=("cp", "sum"),
             Profit=("profit", "sum"),
         ).reset_index()
-        grouped["Cost"] = grouped["CostCP"] + (fixed_cost / max(len(grouped), 1))
+        grouped["Cost"] = grouped["CostCP"]
         grouped["Profit"] = grouped["Revenue"] - grouped["Cost"]
 
         fig = px.bar(
@@ -1509,14 +1535,12 @@ def main():
 
         # Use persisted data — financials already computed, costs from Supabase
         df = stored_df.copy()
-        # Pass 0 here — page_overview will look up per-month costs from Supabase
-        logistic_cost = 0.0
+        logistic_cost = float(df["gt_charges"].sum()) if "gt_charges" in df.columns else 0.0
         ops_cost = 0.0
         misc_cost = 0.0
         commission = 0.0
 
         art_filter, state_filter, time_filter = sidebar(df)
-        monthly_cost_editor()
         sku_cp = sku_cp_manager(df, sku_cp)
         filtered = apply_filters(df, art_filter, state_filter)
 
@@ -1548,6 +1572,8 @@ def main():
     df = parse_dates(df)
     df = classify_orders(df)
 
+    default_lom = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
+
     # ── Mandatory monthly inputs on dashboard (per uploaded sheet) ───────────
     upload_token = get_upload_token(uploaded)
     st.session_state["active_upload_token"] = upload_token
@@ -1558,7 +1584,6 @@ def main():
             "ops_cost": 0.0,
             "misc_cost": 0.0,
             "commission": 0.0,
-            "analysis_mode": "auto",
             "analysis_period": "",
             "confirmed": False,
         }
@@ -1566,85 +1591,46 @@ def main():
     cfg = st.session_state[cfg_key]
     if not cfg.get("confirmed", False):
         st.subheader("🧾 Confirm Monthly Inputs")
-        st.caption("Set monthly costs for this uploaded file, then continue.")
+        st.caption("Select the report month/year manually, then confirm the monthly costs for this upload.")
 
-        available_periods = []
-        if "order_date" in df.columns:
-            available_periods = sorted(
-                df["order_date"].dropna().dt.to_period("M").astype(str).unique().tolist()
-            )
+        month_names = [
+            "January", "February", "March", "April", "May", "June",
+            "July", "August", "September", "October", "November", "December",
+        ]
+        year_options = [str(y) for y in range(datetime.now().year - 2, datetime.now().year + 2)]
 
-        default_mode_idx = 0 if cfg.get("analysis_mode", "auto") == "auto" else 1
         default_period = cfg.get("analysis_period", "")
-        if not default_period and available_periods:
-            default_period = available_periods[-1]
+        if default_period and "-" in default_period:
+            default_year, default_month = default_period.split("-", 1)
+        else:
+            default_year, default_month = str(datetime.now().year), f"{datetime.now().month:02d}"
+
+        year_idx = year_options.index(default_year) if default_year in year_options else len(year_options) - 1
+        month_idx = int(default_month) - 1 if default_month.isdigit() and 1 <= int(default_month) <= 12 else datetime.now().month - 1
 
         with st.form(f"monthly_input_form_{upload_token}"):
+            ycol, mcol = st.columns(2)
+            selected_year = ycol.selectbox("Year", year_options, index=year_idx)
+            selected_month_name = mcol.selectbox("Month", month_names, index=month_idx)
+
+            analysis_period_input = f"{selected_year}-{month_names.index(selected_month_name) + 1:02d}"
+
             logistic_input = st.number_input(
-                "Logistic Charges (₹) - Mandatory",
+                "📦 Logistic + Ops + Misc (₹)",
                 min_value=0.0,
-                value=float(cfg.get("logistic_cost", 0.0)),
+                value=float(cfg.get("logistic_cost", default_lom)),
                 step=100.0,
+                help="Default is the sum of the deduction columns in the sheet. You can override it manually.",
             )
-            ops_input = st.number_input(
-                "Ops Cost (₹) - Mandatory",
-                min_value=0.0,
-                value=float(cfg.get("ops_cost", 0.0)),
-                step=100.0,
-            )
-            misc_input = st.number_input(
-                "Misc Cost (₹) - Optional",
-                min_value=0.0,
-                value=float(cfg.get("misc_cost", 0.0)),
-                step=100.0,
-            )
-            commission_input = st.number_input(
-                "Commission (₹) - Mandatory",
-                min_value=0.0,
-                value=float(cfg.get("commission", 0.0)),
-                step=100.0,
-                help="Absolute commission amount charged.",
-            )
-
-            analysis_mode_input = st.radio(
-                "Analysis Month Source",
-                ["Auto (settlement due date)", "Manual month/year"],
-                index=default_mode_idx,
-            )
-
-            manual_period_input = ""
-            if analysis_mode_input == "Manual month/year":
-                year_options = [str(y) for y in range(datetime.now().year - 2, datetime.now().year + 2)]
-                month_names = [
-                    "January", "February", "March", "April", "May", "June",
-                    "July", "August", "September", "October", "November", "December",
-                ]
-
-                if default_period and "-" in default_period:
-                    default_year, default_month = default_period.split("-", 1)
-                else:
-                    default_year, default_month = str(datetime.now().year), f"{datetime.now().month:02d}"
-
-                year_idx = year_options.index(default_year) if default_year in year_options else len(year_options) - 1
-                month_idx = int(default_month) - 1 if default_month.isdigit() and 1 <= int(default_month) <= 12 else datetime.now().month - 1
-
-                ycol, mcol = st.columns(2)
-                selected_year = ycol.selectbox("Year", year_options, index=year_idx)
-                selected_month_name = mcol.selectbox("Month", month_names, index=month_idx)
-                manual_period_input = f"{selected_year}-{month_names.index(selected_month_name) + 1:02d}"
-
             proceed = st.form_submit_button("✅ Confirm Values and Proceed", type="primary")
 
         if proceed:
-            selected_mode = "auto" if analysis_mode_input == "Auto (settlement due date)" else "manual"
-            selected_period = manual_period_input if selected_mode == "manual" else default_period
             st.session_state[cfg_key] = {
                 "logistic_cost": float(logistic_input),
-                "ops_cost": float(ops_input),
-                "misc_cost": float(misc_input),
-                "commission": float(commission_input),
-                "analysis_mode": selected_mode,
-                "analysis_period": selected_period,
+                "ops_cost": 0.0,
+                "misc_cost": 0.0,
+                "commission": 0.0,
+                "analysis_period": analysis_period_input,
                 "confirmed": True,
             }
             st.rerun()
@@ -1653,21 +1639,17 @@ def main():
         st.stop()
 
     logistic_cost = float(st.session_state[cfg_key]["logistic_cost"])
-    ops_cost = float(st.session_state[cfg_key]["ops_cost"])
-    misc_cost = float(st.session_state[cfg_key]["misc_cost"])
-    commission = float(st.session_state[cfg_key]["commission"])
-    analysis_mode = st.session_state[cfg_key].get("analysis_mode", "auto")
+    ops_cost = 0.0
+    misc_cost = 0.0
+    commission = 0.0
     analysis_period = st.session_state[cfg_key].get("analysis_period", "")
 
-    if "order_date" in df.columns:
-        if analysis_mode == "manual" and analysis_period:
-            df = df[df["order_date"].dt.to_period("M").astype(str) == analysis_period].copy()
-        elif analysis_mode == "auto":
-            periods = sorted(df["order_date"].dropna().dt.to_period("M").astype(str).unique().tolist())
-            if periods:
-                chosen_period = periods[-1]
-                df = df[df["order_date"].dt.to_period("M").astype(str) == chosen_period].copy()
-                analysis_period = chosen_period
+    if analysis_period and "-" in analysis_period:
+        year_str, month_str = analysis_period.split("-", 1)
+        try:
+            df["order_date"] = pd.Timestamp(int(year_str), int(month_str), 1)
+        except Exception:
+            pass
 
     if df.empty:
         st.error("No rows available for the selected analysis month. Please edit monthly inputs and choose the correct month/year.")
@@ -1678,7 +1660,6 @@ def main():
         st.write(f"Ops Cost: {format_inr(ops_cost)}")
         st.write(f"Misc Cost: {format_inr(misc_cost)}")
         st.write(f"Commission: {format_inr(commission)}")
-        st.write(f"Analysis Mode: {'Manual month/year' if analysis_mode == 'manual' else 'Auto (settlement due date)'}")
         if analysis_period:
             st.write(f"Analysis Month: {analysis_period}")
         if st.button("Edit Monthly Inputs", key=f"edit_monthly_inputs_{upload_token}"):
@@ -1687,7 +1668,6 @@ def main():
 
     # ── Collect inputs ────────────────────────────────────────────────────────
     art_filter, state_filter, time_filter = sidebar(df)
-    monthly_cost_editor()
     sku_cp = sku_cp_manager(df, sku_cp)
 
     # If any SKU is missing CP, ask directly on dashboard with a CTA
@@ -1727,7 +1707,6 @@ def main():
         st.stop()
 
     df = compute_financials(df, sku_cp)
-    set_monthly_costs_for_upload(df, logistic_cost, ops_cost, misc_cost)
     persist_uploaded_orders(df, upload_token)
     filtered = apply_filters(df, art_filter, state_filter)
 
