@@ -1557,6 +1557,8 @@ def main():
             "ops_cost": 0.0,
             "misc_cost": 0.0,
             "commission": 0.0,
+            "analysis_mode": "auto",
+            "analysis_period": "",
             "confirmed": False,
         }
 
@@ -1564,6 +1566,18 @@ def main():
     if not cfg.get("confirmed", False):
         st.subheader("🧾 Confirm Monthly Inputs")
         st.caption("Set monthly costs for this uploaded file, then continue.")
+
+        available_periods = []
+        if "order_date" in df.columns:
+            available_periods = sorted(
+                df["order_date"].dropna().dt.to_period("M").astype(str).unique().tolist()
+            )
+
+        default_mode_idx = 0 if cfg.get("analysis_mode", "auto") == "auto" else 1
+        default_period = cfg.get("analysis_period", "")
+        if not default_period and available_periods:
+            default_period = available_periods[-1]
+
         with st.form(f"monthly_input_form_{upload_token}"):
             logistic_input = st.number_input(
                 "Logistic Charges (₹) - Mandatory",
@@ -1590,14 +1604,46 @@ def main():
                 step=100.0,
                 help="Absolute commission amount charged.",
             )
+
+            analysis_mode_input = st.radio(
+                "Analysis Month Source",
+                ["Auto (settlement due date)", "Manual month/year"],
+                index=default_mode_idx,
+            )
+
+            manual_period_input = ""
+            if analysis_mode_input == "Manual month/year":
+                year_options = [str(y) for y in range(datetime.now().year - 2, datetime.now().year + 2)]
+                month_names = [
+                    "January", "February", "March", "April", "May", "June",
+                    "July", "August", "September", "October", "November", "December",
+                ]
+
+                if default_period and "-" in default_period:
+                    default_year, default_month = default_period.split("-", 1)
+                else:
+                    default_year, default_month = str(datetime.now().year), f"{datetime.now().month:02d}"
+
+                year_idx = year_options.index(default_year) if default_year in year_options else len(year_options) - 1
+                month_idx = int(default_month) - 1 if default_month.isdigit() and 1 <= int(default_month) <= 12 else datetime.now().month - 1
+
+                ycol, mcol = st.columns(2)
+                selected_year = ycol.selectbox("Year", year_options, index=year_idx)
+                selected_month_name = mcol.selectbox("Month", month_names, index=month_idx)
+                manual_period_input = f"{selected_year}-{month_names.index(selected_month_name) + 1:02d}"
+
             proceed = st.form_submit_button("✅ Confirm Values and Proceed", type="primary")
 
         if proceed:
+            selected_mode = "auto" if analysis_mode_input == "Auto (settlement due date)" else "manual"
+            selected_period = manual_period_input if selected_mode == "manual" else default_period
             st.session_state[cfg_key] = {
                 "logistic_cost": float(logistic_input),
                 "ops_cost": float(ops_input),
                 "misc_cost": float(misc_input),
                 "commission": float(commission_input),
+                "analysis_mode": selected_mode,
+                "analysis_period": selected_period,
                 "confirmed": True,
             }
             st.rerun()
@@ -1609,12 +1655,31 @@ def main():
     ops_cost = float(st.session_state[cfg_key]["ops_cost"])
     misc_cost = float(st.session_state[cfg_key]["misc_cost"])
     commission = float(st.session_state[cfg_key]["commission"])
+    analysis_mode = st.session_state[cfg_key].get("analysis_mode", "auto")
+    analysis_period = st.session_state[cfg_key].get("analysis_period", "")
+
+    if "order_date" in df.columns:
+        if analysis_mode == "manual" and analysis_period:
+            df = df[df["order_date"].dt.to_period("M").astype(str) == analysis_period].copy()
+        elif analysis_mode == "auto":
+            periods = sorted(df["order_date"].dropna().dt.to_period("M").astype(str).unique().tolist())
+            if periods:
+                chosen_period = periods[-1]
+                df = df[df["order_date"].dt.to_period("M").astype(str) == chosen_period].copy()
+                analysis_period = chosen_period
+
+    if df.empty:
+        st.error("No rows available for the selected analysis month. Please edit monthly inputs and choose the correct month/year.")
+        st.stop()
 
     with st.expander("🧾 Monthly Inputs (Current Upload)", expanded=False):
         st.write(f"Logistic Charges: {format_inr(logistic_cost)}")
         st.write(f"Ops Cost: {format_inr(ops_cost)}")
         st.write(f"Misc Cost: {format_inr(misc_cost)}")
         st.write(f"Commission: {format_inr(commission)}")
+        st.write(f"Analysis Mode: {'Manual month/year' if analysis_mode == 'manual' else 'Auto (settlement due date)'}")
+        if analysis_period:
+            st.write(f"Analysis Month: {analysis_period}")
         if st.button("Edit Monthly Inputs", key=f"edit_monthly_inputs_{upload_token}"):
             st.session_state[cfg_key]["confirmed"] = False
             st.rerun()
