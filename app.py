@@ -54,6 +54,7 @@ SUPABASE_URL = _read_secret("SUPABASE_URL")
 SUPABASE_KEY = _read_secret("SUPABASE_KEY")
 
 COLUMN_MAP = {
+    "settlement due date": "settlement_due_date",
     "sku code": "sku",
     "article type": "article_type",
     "cancelled on date": "cancelled_on",
@@ -932,7 +933,7 @@ def _parse_date_series(series: pd.Series) -> pd.Series:
 
 
 def parse_dates(df: pd.DataFrame) -> pd.DataFrame:
-    for col in ["order_date", "cancelled_on", "return_date"]:
+    for col in ["order_date", "settlement_due_date", "cancelled_on", "return_date"]:
         if col in df.columns:
             df[col] = _parse_date_series(df[col])
     return df
@@ -1572,8 +1573,6 @@ def main():
     df = parse_dates(df)
     df = classify_orders(df)
 
-    default_lom = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
-
     # ── Mandatory monthly inputs on dashboard (per uploaded sheet) ───────────
     upload_token = get_upload_token(uploaded)
     st.session_state["active_upload_token"] = upload_token
@@ -1581,9 +1580,6 @@ def main():
     if cfg_key not in st.session_state:
         st.session_state[cfg_key] = {
             "logistic_cost": 0.0,
-            "ops_cost": 0.0,
-            "misc_cost": 0.0,
-            "commission": 0.0,
             "analysis_period": "",
             "confirmed": False,
         }
@@ -1618,18 +1614,15 @@ def main():
             logistic_input = st.number_input(
                 "📦 Logistic + Ops + Misc (₹)",
                 min_value=0.0,
-                value=float(cfg.get("logistic_cost", default_lom)),
+                value=float(cfg.get("logistic_cost", 0.0)),
                 step=100.0,
-                help="Default is the sum of the deduction columns in the sheet. You can override it manually.",
+                help="Leave 0 to use the deduction columns from the selected month, or enter your own value.",
             )
             proceed = st.form_submit_button("✅ Confirm Values and Proceed", type="primary")
 
         if proceed:
             st.session_state[cfg_key] = {
                 "logistic_cost": float(logistic_input),
-                "ops_cost": 0.0,
-                "misc_cost": 0.0,
-                "commission": 0.0,
                 "analysis_period": analysis_period_input,
                 "confirmed": True,
             }
@@ -1639,17 +1632,18 @@ def main():
         st.stop()
 
     logistic_cost = float(st.session_state[cfg_key]["logistic_cost"])
+    analysis_period = st.session_state[cfg_key].get("analysis_period", "")
+
+    if analysis_period and "-" in analysis_period and "settlement_due_date" in df.columns:
+        df = df[df["settlement_due_date"].dt.to_period("M").astype(str) == analysis_period].copy()
+        if not df.empty:
+            df["order_date"] = df["settlement_due_date"]
+
+    if logistic_cost == 0:
+        logistic_cost = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
     ops_cost = 0.0
     misc_cost = 0.0
     commission = 0.0
-    analysis_period = st.session_state[cfg_key].get("analysis_period", "")
-
-    if analysis_period and "-" in analysis_period:
-        year_str, month_str = analysis_period.split("-", 1)
-        try:
-            df["order_date"] = pd.Timestamp(int(year_str), int(month_str), 1)
-        except Exception:
-            pass
 
     if df.empty:
         st.error("No rows available for the selected analysis month. Please edit monthly inputs and choose the correct month/year.")
