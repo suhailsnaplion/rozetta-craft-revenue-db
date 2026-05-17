@@ -1155,6 +1155,8 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     total_return_settled = (
         _to_numeric_series(returned_df["prepaid_final_amount"]).sum() + _to_numeric_series(returned_df["postpaid_final_amount"]).sum()
     ) if ("prepaid_final_amount" in returned_df.columns and "postpaid_final_amount" in returned_df.columns) else _to_numeric_series(returned_df.get("final_amount", 0)).sum()
+
+    total_revenue = sales_df["revenue"].sum()
     revenue_formula_total = (
         total_prepaid_settled
         + total_postpaid_settled
@@ -1163,7 +1165,6 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
         - total_return_settled
     ) if has_split_components and total_prepaid_deductions is not None and total_postpaid_deductions is not None else total_revenue
 
-    total_revenue = sales_df["revenue"].sum()
     total_cp = sales_df["cp"].sum()
     total_cost = total_cp
     total_profit = total_revenue - total_cost
