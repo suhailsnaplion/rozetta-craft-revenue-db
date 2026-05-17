@@ -1140,6 +1140,23 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
 
     sales_df = view_df[view_df["status"] == "sale"].copy()
 
+    total_prepaid_settled = _to_numeric_series(view_df.get("prepaid_final_amount", 0)).sum()
+    total_postpaid_settled = _to_numeric_series(view_df.get("postpaid_final_amount", 0)).sum()
+    total_prepaid_deductions = _sum_numeric_columns(view_df, PREPAID_DEDUCTION_COLS).sum()
+    total_postpaid_deductions = _sum_numeric_columns(view_df, POSTPAID_DEDUCTION_COLS).sum()
+    returned_df = view_df[view_df["status"] == "returned"].copy()
+    total_return_settled = (
+        _to_numeric_series(returned_df.get("prepaid_final_amount", 0)).sum()
+        + _to_numeric_series(returned_df.get("postpaid_final_amount", 0)).sum()
+    )
+    revenue_formula_total = (
+        total_prepaid_settled
+        + total_postpaid_settled
+        - total_prepaid_deductions
+        - total_postpaid_deductions
+        - total_return_settled
+    )
+
     total_revenue = sales_df["revenue"].sum()
     total_cp = sales_df["cp"].sum()
     total_cost = total_cp
@@ -1188,6 +1205,12 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
         st.write("Cost = Cost Price (CP)")
         st.write("Logistic + Ops + Misc = sum of the deduction columns or user override")
         st.write("Net Profit = Revenue - CP")
+        st.write(f"Prepaid Final Settled Amount Total: {format_inr(total_prepaid_settled)}")
+        st.write(f"Postpaid Final Settled Amount Total: {format_inr(total_postpaid_settled)}")
+        st.write(f"Sum of All Deductions (Prepaid): {format_inr(total_prepaid_deductions)}")
+        st.write(f"Sum of All Deductions (Postpaid): {format_inr(total_postpaid_deductions)}")
+        st.write(f"Sum of Prepaid + Postpaid Returns: {format_inr(total_return_settled)}")
+        st.write(f"Revenue Formula Total: {format_inr(revenue_formula_total)}")
         st.write(f"Revenue (SP): {format_inr(total_sp)}")
         st.write(f"Cost Price Total: {format_inr(total_cp)}")
         st.write(f"Logistic + Ops + Misc: {format_inr(total_lom)}")
