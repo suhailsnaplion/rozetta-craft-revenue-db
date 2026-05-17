@@ -1639,8 +1639,9 @@ def main():
         if not df.empty:
             df["order_date"] = df["settlement_due_date"]
 
+    deduction_total = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
     if logistic_cost == 0:
-        logistic_cost = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
+        logistic_cost = deduction_total
     ops_cost = 0.0
     misc_cost = 0.0
     commission = 0.0
@@ -1650,7 +1651,7 @@ def main():
         st.stop()
 
     with st.expander("🧾 Monthly Inputs (Current Upload)", expanded=False):
-        st.write(f"Logistic Charges: {format_inr(logistic_cost)}")
+        st.write(f"Logistic Charges: {format_inr(deduction_total)}")
         st.write(f"Ops Cost: {format_inr(ops_cost)}")
         st.write(f"Misc Cost: {format_inr(misc_cost)}")
         st.write(f"Commission: {format_inr(commission)}")
