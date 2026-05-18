@@ -1235,14 +1235,20 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             Revenue=("revenue", "sum"),
             ProductCost=("cp", "sum"),
         ).reset_index().sort_values("month")
-
         trend["Cost"] = trend["ProductCost"]
         trend["Profit"] = trend["Revenue"] - trend["Cost"]
+        # Convert YYYY-MM to readable "Apr 2026" labels
+        def _period_to_label(p):
+            try:
+                return pd.to_datetime(p + "-01").strftime("%b %Y")
+            except Exception:
+                return p
+        trend["month_label"] = trend["month"].apply(_period_to_label)
 
         st.subheader("📅 Month-on-Month Trend")
         fig_trend = px.line(
             trend,
-            x="month",
+            x="month_label",
             y=["Revenue", "Cost", "Profit"],
             markers=True,
             title="MoM Revenue vs Cost vs Profit",
@@ -1290,13 +1296,11 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
 
     st.markdown("---")
 
-    # Time series
+    # Time series — always monthly
     if "order_date" in sales_df.columns:
         ts = sales_df.copy()
-        if time_filter == "Weekly View":
-            ts["period"] = ts["order_date"].apply(week_label)
-        else:
-            ts["period"] = ts["order_date"].dt.to_period("M").astype(str)
+        ts["_period_key"] = pd.to_datetime(ts["order_date"], errors="coerce").dt.to_period("M").astype(str)
+        ts["period"] = ts["_period_key"].apply(lambda p: pd.to_datetime(p + "-01").strftime("%b %Y") if p and p != "nan" else p)
 
         grouped = ts.groupby("period").agg(
             Revenue=("revenue", "sum"),
