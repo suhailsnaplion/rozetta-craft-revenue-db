@@ -1135,6 +1135,40 @@ def apply_filters(df, art_filter, state_filter, month_filter):
     return filtered
 
 
+def dashboard_month_selector(df: pd.DataFrame, default_month: str, key: str) -> str:
+    """Visible in-page month selector so users can switch months from dashboard area."""
+    month_options = ["All"]
+    if "order_date" in df.columns:
+        month_series = pd.to_datetime(df["order_date"], errors="coerce").dropna()
+        if not month_series.empty:
+            month_values = sorted(month_series.dt.to_period("M").astype(str).unique().tolist())
+            month_options = ["All"] + month_values
+
+    default_idx = month_options.index(default_month) if default_month in month_options else 0
+    left, _ = st.columns([2, 8])
+    with left:
+        st.caption("Dashboard Month")
+        return st.selectbox(
+            "Dashboard Month",
+            month_options,
+            index=default_idx,
+            key=key,
+            label_visibility="collapsed",
+        )
+
+
+def safe_for_streamlit_dataframe(df: pd.DataFrame) -> pd.DataFrame:
+    """Convert problematic dtypes to Arrow-safe representations for Streamlit rendering."""
+    out = df.copy()
+    for col in out.columns:
+        series = out[col]
+        if pd.api.types.is_datetime64_any_dtype(series):
+            out[col] = pd.to_datetime(series, errors="coerce").dt.strftime("%Y-%m-%d")
+        elif pd.api.types.is_period_dtype(series) or pd.api.types.is_timedelta64_dtype(series):
+            out[col] = series.astype(str)
+    return out
+
+
 # ── Pages ────────────────────────────────────────────────────────────────────
 
 def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filter):
@@ -1582,6 +1616,7 @@ def main():
         commission = 0.0
 
         art_filter, state_filter, month_filter, time_filter = sidebar(df)
+        month_filter = dashboard_month_selector(df, month_filter, key="stored_dashboard_month_filter")
         sku_cp = sku_cp_manager(df, sku_cp)
         filtered = apply_filters(df, art_filter, state_filter, month_filter)
 
@@ -1719,6 +1754,7 @@ def main():
 
     # ── Collect inputs ────────────────────────────────────────────────────────
     art_filter, state_filter, month_filter, time_filter = sidebar(df)
+    month_filter = dashboard_month_selector(df, month_filter, key="upload_dashboard_month_filter")
     sku_cp = sku_cp_manager(df, sku_cp)
 
     # If any SKU is missing CP, ask directly on dashboard with a CTA
@@ -1779,7 +1815,12 @@ def main():
 
     # ── Raw data viewer ───────────────────────────────────────────────────────
     with st.expander("🗂️ View Raw Processed Data"):
-        st.dataframe(filtered, use_container_width=True)
+        render_df = safe_for_streamlit_dataframe(filtered)
+        try:
+            st.dataframe(render_df, use_container_width=True)
+        except Exception:
+            st.warning("Raw table contained values that could not be rendered directly. Showing safe text view.")
+            st.dataframe(render_df.astype(str), use_container_width=True)
         csv_out = filtered.to_csv(index=False).encode()
         st.download_button("⬇️ Download Processed CSV", csv_out, "processed_report.csv", "text/csv")
 
