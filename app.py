@@ -1726,9 +1726,11 @@ def main():
     logistic_cost = float(st.session_state[cfg_key]["logistic_cost"])
     analysis_period = st.session_state[cfg_key].get("analysis_period", "")
 
-    # Do not cut rows from the uploaded sheet; keep all rows as-is.
-    if "settlement_due_date" in df.columns:
-        df["order_date"] = df["settlement_due_date"]
+    # Month is owned by user input. Do NOT derive month from sheet dates.
+    if analysis_period and "-" in analysis_period:
+        df["order_date"] = pd.to_datetime(f"{analysis_period}-01", errors="coerce")
+    elif "order_date" not in df.columns:
+        df["order_date"] = pd.NaT
 
     deduction_total = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
     if logistic_cost == 0:
