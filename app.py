@@ -336,20 +336,28 @@ def apply_custom_theme():
             }
             .stSelectbox label,
             .stSelectbox > div > div > div > div {
-                color: #1e40af !important;
+                color: #f8fbff !important;
                 font-weight: 600 !important;
             }
             [data-baseweb="select"] > div {
                 background: rgba(20, 30, 50, 0.92) !important;
-                color: #1e40af !important;
+                color: #f8fbff !important;
+            }
+            [data-baseweb="select"] span,
+            [data-baseweb="select"] input,
+            [data-baseweb="select"] div {
+                color: #f8fbff !important;
+            }
+            [data-baseweb="select"] [aria-expanded="true"] {
+                border-color: rgba(0, 212, 255, 0.65) !important;
             }
             [role="listbox"] {
                 background: rgba(20, 30, 50, 0.98) !important;
                 border: 1px solid rgba(0, 212, 255, 0.3) !important;
             }
             [role="option"] {
-                color: #1e40af !important;
-                background: transparent !important;
+                color: #f8fbff !important;
+                background: rgba(20, 30, 50, 0.98) !important;
             }
             [role="option"][aria-selected="true"] {
                 background: rgba(0, 212, 255, 0.18) !important;
