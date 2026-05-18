@@ -1208,31 +1208,77 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
         st.plotly_chart(fig_trend, use_container_width=True)
 
     with st.expander("🧮 Calculation Breakdown", expanded=False):
-        st.write("Revenue (SP) = Prepaid Final Settled Amount + Postpaid Final Settled Amount - deduction columns")
-        st.write("Cost = Cost Price (CP)")
-        st.write("Logistic + Ops + Misc = sum of the deduction columns or user override")
-        st.write("Net Profit = Revenue - CP")
+        st.markdown("**Formula:**  Revenue (SP) = Prepaid Settled + Postpaid Settled − Prepaid Deductions − Postpaid Deductions − Returns")
+        st.markdown("**Net Profit** = Revenue (SP) − Cost Price (CP)")
+
         if total_prepaid_settled is None or total_postpaid_settled is None:
             st.caption("Split prepaid/postpaid components are unavailable in persisted view. Re-upload the file to see full component-level breakup.")
-            st.write("Prepaid Final Settled Amount Total: N/A")
-            st.write("Postpaid Final Settled Amount Total: N/A")
         else:
-            st.write(f"Prepaid Final Settled Amount Total: {format_inr(total_prepaid_settled)}")
-            st.write(f"Postpaid Final Settled Amount Total: {format_inr(total_postpaid_settled)}")
+            # ── Base settled amounts ──────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 💵 Base Settled Amounts")
+            bd1, bd2 = st.columns(2)
+            bd1.metric("Prepaid Final Settled Amount", format_inr(total_prepaid_settled))
+            bd2.metric("Postpaid Final Settled Amount", format_inr(total_postpaid_settled))
 
-        if total_prepaid_deductions is None or total_postpaid_deductions is None:
-            st.write("Sum of All Deductions (Prepaid): N/A")
-            st.write("Sum of All Deductions (Postpaid): N/A")
-        else:
-            st.write(f"Sum of All Deductions (Prepaid): {format_inr(total_prepaid_deductions)}")
-            st.write(f"Sum of All Deductions (Postpaid): {format_inr(total_postpaid_deductions)}")
-        st.write(f"Sum of Prepaid + Postpaid Returns: {format_inr(total_return_settled)}")
-        st.write(f"Revenue Formula Total: {format_inr(revenue_formula_total)}")
-        st.write(f"Revenue (SP): {format_inr(total_sp)}")
-        st.write(f"Cost Price Total: {format_inr(total_cp)}")
-        st.write(f"Logistic + Ops + Misc: {format_inr(total_lom)}")
-        st.write(f"Total Cost: {format_inr(total_cost)}")
-        st.write(f"Net Profit: {format_inr(total_profit)}")
+            # ── Prepaid deductions per column ─────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 🔻 Prepaid Deductions (column-wise)")
+            prepaid_col_sums = {
+                col: float(_to_numeric_series(view_df[col]).sum())
+                for col in PREPAID_DEDUCTION_COLS if col in view_df.columns
+            }
+            if prepaid_col_sums:
+                rows_pp = list(prepaid_col_sums.items())
+                for i in range(0, len(rows_pp), 3):
+                    chunk = rows_pp[i:i+3]
+                    cols = st.columns(3)
+                    for j, (cname, cval) in enumerate(chunk):
+                        cols[j].metric(cname.title(), format_inr(cval))
+                st.markdown(f"**Sum of All Prepaid Deductions: {format_inr(total_prepaid_deductions)}**")
+            else:
+                st.caption("No prepaid deduction columns found in data.")
+
+            # ── Postpaid deductions per column ────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 🔻 Postpaid Deductions (column-wise)")
+            postpaid_col_sums = {
+                col: float(_to_numeric_series(view_df[col]).sum())
+                for col in POSTPAID_DEDUCTION_COLS if col in view_df.columns
+            }
+            if postpaid_col_sums:
+                rows_ppost = list(postpaid_col_sums.items())
+                for i in range(0, len(rows_ppost), 3):
+                    chunk = rows_ppost[i:i+3]
+                    cols = st.columns(3)
+                    for j, (cname, cval) in enumerate(chunk):
+                        cols[j].metric(cname.title(), format_inr(cval))
+                st.markdown(f"**Sum of All Postpaid Deductions: {format_inr(total_postpaid_deductions)}**")
+            else:
+                st.caption("No postpaid deduction columns found in data.")
+
+            # ── Returns ───────────────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### 🔄 Returns")
+            st.metric("Sum of Prepaid + Postpaid Returns", format_inr(total_return_settled))
+
+            # ── Final calculation ─────────────────────────────────────────────
+            st.markdown("---")
+            st.markdown("#### ✅ Final Calculation")
+            fc1, fc2 = st.columns(2)
+            fc1.metric("Prepaid Settled", format_inr(total_prepaid_settled))
+            fc2.metric("Postpaid Settled", format_inr(total_postpaid_settled))
+            fc3, fc4 = st.columns(2)
+            fc3.metric("(−) Total Prepaid Deductions", format_inr(total_prepaid_deductions))
+            fc4.metric("(−) Total Postpaid Deductions", format_inr(total_postpaid_deductions))
+            st.metric("(−) Returns", format_inr(total_return_settled))
+            st.metric("= Revenue Formula Total", format_inr(revenue_formula_total))
+            st.markdown("---")
+            st.metric("Revenue (SP) — sales rows only", format_inr(total_sp))
+            st.metric("Cost Price Total (CP)", format_inr(total_cp))
+            st.metric("Logistic + Ops + Misc", format_inr(total_lom))
+            st.metric("Total Cost", format_inr(total_cost))
+            st.metric("Net Profit  (Revenue SP − CP)", format_inr(total_profit))
 
     st.markdown("---")
 
