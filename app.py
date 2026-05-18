@@ -1122,23 +1122,8 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     st.header("📈 Revenue, Cost & Profit Overview")
     st.caption("Need to update SKU prices? Use sidebar → Cost Price Setup.")
 
+    # Keep overview calculations on the full uploaded sheet (no month row cuts).
     view_df = df.copy()
-    selected_month = "All"
-    if "order_date" in view_df.columns:
-        month_vals = sorted(view_df["order_date"].dropna().dt.to_period("M").astype(str).unique().tolist())
-        month_options = ["All"] + month_vals
-        month_col, _spacer = st.columns([1.6, 8.4])
-        with month_col:
-            st.caption("Month")
-            selected_month = st.selectbox(
-                "Month",
-                month_options,
-                index=len(month_options) - 1,
-                key="overview_month_filter",
-                label_visibility="collapsed",
-            )
-        if selected_month != "All":
-            view_df = view_df[view_df["order_date"].dt.to_period("M").astype(str) == selected_month].copy()
 
     calc_df = view_df.copy()
     sales_df = view_df[view_df["status"] == "sale"].copy()
