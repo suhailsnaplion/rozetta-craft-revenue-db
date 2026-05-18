@@ -976,7 +976,7 @@ def compute_financials(df: pd.DataFrame, sku_cp: dict) -> pd.DataFrame:
     Product cost (sales only) = CP
     Contribution (sales only) = SP - CP
     """
-    # Calculate net settled amount by subtracting prepaid/postpaid deductions.
+    # Calculate net settled amount by subtracting deductions from prepaid and postpaid amounts.
     prepaid = _to_numeric_series(df.get("prepaid_final_amount", 0))
     postpaid = _to_numeric_series(df.get("postpaid_final_amount", 0))
     prepaid_deductions = _sum_numeric_columns(df, PREPAID_DEDUCTION_COLS)
@@ -1140,22 +1140,20 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
         if selected_month != "All":
             view_df = view_df[view_df["order_date"].dt.to_period("M").astype(str) == selected_month].copy()
 
+    calc_df = view_df.copy()
     sales_df = view_df[view_df["status"] == "sale"].copy()
-
     returned_df = view_df[view_df["status"] == "returned"].copy()
 
     has_split_components = (
-        "prepaid_final_amount" in sales_df.columns
-        and "postpaid_final_amount" in sales_df.columns
+        "prepaid_final_amount" in calc_df.columns
+        and "postpaid_final_amount" in calc_df.columns
     )
 
-    # Use SALES rows only for settled amounts + deductions.
-    # Returned rows carry negative clawback values that would otherwise
-    # halve the totals and corrupt the formula.
-    total_prepaid_settled = _to_numeric_series(sales_df["prepaid_final_amount"]).sum() if "prepaid_final_amount" in sales_df.columns else None
-    total_postpaid_settled = _to_numeric_series(sales_df["postpaid_final_amount"]).sum() if "postpaid_final_amount" in sales_df.columns else None
-    total_prepaid_deductions = _sum_numeric_columns(sales_df, PREPAID_DEDUCTION_COLS).sum() if any(c in sales_df.columns for c in PREPAID_DEDUCTION_COLS) else None
-    total_postpaid_deductions = _sum_numeric_columns(sales_df, POSTPAID_DEDUCTION_COLS).sum() if any(c in sales_df.columns for c in POSTPAID_DEDUCTION_COLS) else None
+    # Breakdown should use the uploaded dataset as-is (no status-based row cuts).
+    total_prepaid_settled = _to_numeric_series(calc_df["prepaid_final_amount"]).sum() if "prepaid_final_amount" in calc_df.columns else None
+    total_postpaid_settled = _to_numeric_series(calc_df["postpaid_final_amount"]).sum() if "postpaid_final_amount" in calc_df.columns else None
+    total_prepaid_deductions = _sum_numeric_columns(calc_df, PREPAID_DEDUCTION_COLS).sum() if any(c in calc_df.columns for c in PREPAID_DEDUCTION_COLS) else None
+    total_postpaid_deductions = _sum_numeric_columns(calc_df, POSTPAID_DEDUCTION_COLS).sum() if any(c in calc_df.columns for c in POSTPAID_DEDUCTION_COLS) else None
 
     # Returns: absolute value of the settled amounts on returned rows.
     if "prepaid_final_amount" in returned_df.columns and "postpaid_final_amount" in returned_df.columns:
@@ -1169,15 +1167,11 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     total_revenue = sales_df["revenue"].sum()
 
     if has_split_components and total_prepaid_deductions is not None and total_postpaid_deductions is not None:
-        # Deduction columns in Myntra sheets are stored as negative numbers.
-        # abs() ensures the subtraction is correct regardless of sign convention.
-        prepaid_ded_abs = abs(total_prepaid_deductions)
-        postpaid_ded_abs = abs(total_postpaid_deductions)
         revenue_formula_total = (
             total_prepaid_settled
             + total_postpaid_settled
-            - prepaid_ded_abs
-            - postpaid_ded_abs
+            - total_prepaid_deductions
+            - total_postpaid_deductions
             - total_return_settled
         )
     else:
@@ -1234,16 +1228,16 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             r1c2.metric("2. Postpaid Final Settled Amount Total", format_inr(total_postpaid_settled))
 
             # Deduction cols in Myntra are stored as negative — show abs for readability
-            prepaid_ded_display = abs(total_prepaid_deductions) if total_prepaid_deductions is not None else 0
-            postpaid_ded_display = abs(total_postpaid_deductions) if total_postpaid_deductions is not None else 0
+            prepaid_ded_display = total_prepaid_deductions if total_prepaid_deductions is not None else 0
+            postpaid_ded_display = total_postpaid_deductions if total_postpaid_deductions is not None else 0
 
             r2c1, r2c2 = st.columns(2)
             r2c1.metric("3. Sum of All Deductions (Prepaid)", format_inr(prepaid_ded_display))
             r2c2.metric("4. Sum of All Deductions (Postpaid)", format_inr(postpaid_ded_display))
 
             r3c1, r3c2 = st.columns(2)
-            r3c1.metric("5. prepaid_final_amount (sales rows sum)", format_inr(total_prepaid_settled))
-            r3c2.metric("6. postpaid_final_amount (sales rows sum)", format_inr(total_postpaid_settled))
+            r3c1.metric("5. prepaid_final_amount (full sheet sum)", format_inr(total_prepaid_settled))
+            r3c2.metric("6. postpaid_final_amount (full sheet sum)", format_inr(total_postpaid_settled))
 
             st.markdown("---")
             st.markdown(
@@ -1696,10 +1690,9 @@ def main():
     logistic_cost = float(st.session_state[cfg_key]["logistic_cost"])
     analysis_period = st.session_state[cfg_key].get("analysis_period", "")
 
-    if analysis_period and "-" in analysis_period and "settlement_due_date" in df.columns:
-        df = df[df["settlement_due_date"].dt.to_period("M").astype(str) == analysis_period].copy()
-        if not df.empty:
-            df["order_date"] = df["settlement_due_date"]
+    # Do not cut rows from the uploaded sheet; keep all rows as-is.
+    if "settlement_due_date" in df.columns:
+        df["order_date"] = df["settlement_due_date"]
 
     deduction_total = float((_sum_numeric_columns(df, PREPAID_DEDUCTION_COLS) + _sum_numeric_columns(df, POSTPAID_DEDUCTION_COLS)).sum())
     if logistic_cost == 0:
