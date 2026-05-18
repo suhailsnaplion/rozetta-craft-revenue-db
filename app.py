@@ -1770,6 +1770,10 @@ def main():
         st.error("⚠️ Some SKUs are missing cost price. Please enter values below to proceed.")
         st.caption("This is required for accurate revenue/profit calculation for the current upload.")
 
+        # Use a sanitized key (stripped, no spaces) so session_state lookup is reliable
+        def _cp_key(sku):
+            return "mcp_" + "".join(c if c.isalnum() else "_" for c in str(sku))
+
         cols_per_row = 3
         rows = [missing_cp[i:i+cols_per_row] for i in range(0, len(missing_cp), cols_per_row)]
 
@@ -1779,20 +1783,14 @@ def main():
                 col.number_input(
                     f"Cost Price for {sku}",
                     min_value=0.0,
-                    value=0.0,
+                    value=float(sku_cp.get(sku, 0)),
                     step=1.0,
-                    key=f"missing_cp_{sku}",
+                    key=_cp_key(sku),
                 )
 
         if st.button("✅ Confirm and Proceed", type="primary"):
-            # Fetch values from session state (where Streamlit stores input values)
-            entered_cp = {s: st.session_state.get(f"missing_cp_{s}", 0) for s in missing_cp}
-            unresolved = [s for s in missing_cp if entered_cp.get(s, 0) == 0]
-            if unresolved:
-                st.warning(f"Please enter cost price for: {', '.join(unresolved)}")
-                st.stop()
-
-            sku_cp.update({s: float(v) for s, v in entered_cp.items()})
+            entered_cp = {s: float(st.session_state.get(_cp_key(s), 0)) for s in missing_cp}
+            sku_cp.update(entered_cp)
             save_sku_cp(sku_cp)
             st.success("Cost prices saved. Recalculating dashboard...")
             st.rerun()
