@@ -1027,10 +1027,18 @@ def sidebar(df: pd.DataFrame):
     states = ["All"] + sorted(df["state"].dropna().unique().tolist()) if "state" in df.columns else ["All"]
     state_filter = st.sidebar.selectbox("State / Geography", states)
 
+    months = ["All"]
+    if "order_date" in df.columns:
+        month_series = pd.to_datetime(df["order_date"], errors="coerce").dropna()
+        if not month_series.empty:
+            month_vals = sorted(month_series.dt.to_period("M").astype(str).unique().tolist())
+            months = ["All"] + month_vals
+    month_filter = st.sidebar.selectbox("Month", months)
+
     time_options = ["Monthly View", "Weekly View"]
     time_filter = st.sidebar.radio("Time Granularity", time_options)
 
-    return art_filter, state_filter, time_filter
+    return art_filter, state_filter, month_filter, time_filter
 
 
 def monthly_cost_editor():
@@ -1115,12 +1123,15 @@ def sku_cp_manager(df: pd.DataFrame, sku_cp: dict) -> dict:
 
 # ── Filter helper ────────────────────────────────────────────────────────────
 
-def apply_filters(df, art_filter, state_filter):
+def apply_filters(df, art_filter, state_filter, month_filter):
     filtered = df.copy()
     if art_filter != "All" and "article_type" in filtered.columns:
         filtered = filtered[filtered["article_type"] == art_filter]
     if state_filter != "All" and "state" in filtered.columns:
         filtered = filtered[filtered["state"] == state_filter]
+    if month_filter != "All" and "order_date" in filtered.columns:
+        month_series = pd.to_datetime(filtered["order_date"], errors="coerce").dt.to_period("M").astype(str)
+        filtered = filtered[month_series == month_filter]
     return filtered
 
 
@@ -1563,26 +1574,6 @@ def main():
             st.markdown("3. Confirm Logistic/Ops/Misc costs on dashboard screen")
             return
 
-        # Avoid mixing historical uploads: default to active/latest upload token.
-        if "upload_token" in stored_df.columns:
-            active_token = str(st.session_state.get("active_upload_token", "")).strip()
-            chosen_token = ""
-            token_series = stored_df["upload_token"].astype(str)
-            if active_token and (token_series == active_token).any():
-                chosen_token = active_token
-            else:
-                latest_per_token = (
-                    stored_df.dropna(subset=["order_date"]) 
-                    .groupby("upload_token")["order_date"]
-                    .max()
-                    .sort_values()
-                )
-                if not latest_per_token.empty:
-                    chosen_token = str(latest_per_token.index[-1])
-            if chosen_token:
-                stored_df = stored_df[token_series == chosen_token].copy()
-                st.caption("Showing latest uploaded report by default.")
-
         # Use persisted data — financials already computed, costs from Supabase
         df = stored_df.copy()
         logistic_cost = float(df["gt_charges"].sum()) if "gt_charges" in df.columns else 0.0
@@ -1590,9 +1581,9 @@ def main():
         misc_cost = 0.0
         commission = 0.0
 
-        art_filter, state_filter, time_filter = sidebar(df)
+        art_filter, state_filter, month_filter, time_filter = sidebar(df)
         sku_cp = sku_cp_manager(df, sku_cp)
-        filtered = apply_filters(df, art_filter, state_filter)
+        filtered = apply_filters(df, art_filter, state_filter, month_filter)
 
         pages = {
             "📈 Overview": lambda: page_overview(filtered, logistic_cost, ops_cost, misc_cost, commission, time_filter),
@@ -1670,6 +1661,23 @@ def main():
             proceed = st.form_submit_button("✅ Confirm Values and Proceed", type="primary")
 
         if proceed:
+            existing_df = load_uploaded_orders()
+            if not existing_df.empty and "order_date" in existing_df.columns:
+                existing_months = set(
+                    pd.to_datetime(existing_df["order_date"], errors="coerce")
+                    .dropna()
+                    .dt.to_period("M")
+                    .astype(str)
+                    .unique()
+                    .tolist()
+                )
+                if analysis_period_input in existing_months:
+                    st.error(
+                        f"Data for {analysis_period_input} already exists. "
+                        "Please choose a different month to avoid duplication."
+                    )
+                    st.stop()
+
             st.session_state[cfg_key] = {
                 "logistic_cost": float(logistic_input),
                 "analysis_period": analysis_period_input,
@@ -1710,7 +1718,7 @@ def main():
             st.rerun()
 
     # ── Collect inputs ────────────────────────────────────────────────────────
-    art_filter, state_filter, time_filter = sidebar(df)
+    art_filter, state_filter, month_filter, time_filter = sidebar(df)
     sku_cp = sku_cp_manager(df, sku_cp)
 
     # If any SKU is missing CP, ask directly on dashboard with a CTA
@@ -1751,7 +1759,7 @@ def main():
 
     df = compute_financials(df, sku_cp)
     persist_uploaded_orders(df, upload_token)
-    filtered = apply_filters(df, art_filter, state_filter)
+    filtered = apply_filters(df, art_filter, state_filter, month_filter)
 
     # ── Navigation ────────────────────────────────────────────────────────────
     pages = {
