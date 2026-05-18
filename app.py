@@ -1036,7 +1036,7 @@ def sidebar(df: pd.DataFrame):
     month_filter = st.sidebar.selectbox("Month", months)
 
     time_options = ["Monthly View", "Weekly View"]
-    time_filter = st.sidebar.radio("Time Granularity", time_options)
+    time_filter = st.sidebar.radio("Time Granularity", time_options, index=0)
 
     return art_filter, state_filter, month_filter, time_filter
 
@@ -1230,7 +1230,7 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
     # Trendline based on the current data selection, not all historical uploads.
     if not sales_df.empty and "order_date" in sales_df.columns:
         trend_source = sales_df.copy()
-        trend_source["month"] = trend_source["order_date"].dt.to_period("M").astype(str)
+        trend_source["month"] = pd.to_datetime(trend_source["order_date"], errors="coerce").dt.to_period("M").astype(str)
         trend = trend_source.groupby("month").agg(
             Revenue=("revenue", "sum"),
             ProductCost=("cp", "sum"),
