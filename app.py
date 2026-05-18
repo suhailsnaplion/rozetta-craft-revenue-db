@@ -1142,28 +1142,46 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
 
     sales_df = view_df[view_df["status"] == "sale"].copy()
 
+    returned_df = view_df[view_df["status"] == "returned"].copy()
+
     has_split_components = (
-        "prepaid_final_amount" in view_df.columns
-        and "postpaid_final_amount" in view_df.columns
+        "prepaid_final_amount" in sales_df.columns
+        and "postpaid_final_amount" in sales_df.columns
     )
 
-    total_prepaid_settled = _to_numeric_series(view_df["prepaid_final_amount"]).sum() if "prepaid_final_amount" in view_df.columns else None
-    total_postpaid_settled = _to_numeric_series(view_df["postpaid_final_amount"]).sum() if "postpaid_final_amount" in view_df.columns else None
-    total_prepaid_deductions = _sum_numeric_columns(view_df, PREPAID_DEDUCTION_COLS).sum() if any(c in view_df.columns for c in PREPAID_DEDUCTION_COLS) else None
-    total_postpaid_deductions = _sum_numeric_columns(view_df, POSTPAID_DEDUCTION_COLS).sum() if any(c in view_df.columns for c in POSTPAID_DEDUCTION_COLS) else None
-    returned_df = view_df[view_df["status"] == "returned"].copy()
-    total_return_settled = (
-        _to_numeric_series(returned_df["prepaid_final_amount"]).sum() + _to_numeric_series(returned_df["postpaid_final_amount"]).sum()
-    ) if ("prepaid_final_amount" in returned_df.columns and "postpaid_final_amount" in returned_df.columns) else _to_numeric_series(returned_df.get("final_amount", 0)).sum()
+    # Use SALES rows only for settled amounts + deductions.
+    # Returned rows carry negative clawback values that would otherwise
+    # halve the totals and corrupt the formula.
+    total_prepaid_settled = _to_numeric_series(sales_df["prepaid_final_amount"]).sum() if "prepaid_final_amount" in sales_df.columns else None
+    total_postpaid_settled = _to_numeric_series(sales_df["postpaid_final_amount"]).sum() if "postpaid_final_amount" in sales_df.columns else None
+    total_prepaid_deductions = _sum_numeric_columns(sales_df, PREPAID_DEDUCTION_COLS).sum() if any(c in sales_df.columns for c in PREPAID_DEDUCTION_COLS) else None
+    total_postpaid_deductions = _sum_numeric_columns(sales_df, POSTPAID_DEDUCTION_COLS).sum() if any(c in sales_df.columns for c in POSTPAID_DEDUCTION_COLS) else None
+
+    # Returns: absolute value of the settled amounts on returned rows.
+    if "prepaid_final_amount" in returned_df.columns and "postpaid_final_amount" in returned_df.columns:
+        total_return_settled = abs(
+            _to_numeric_series(returned_df["prepaid_final_amount"]).sum()
+            + _to_numeric_series(returned_df["postpaid_final_amount"]).sum()
+        )
+    else:
+        total_return_settled = abs(_to_numeric_series(returned_df.get("final_amount", 0)).sum())
 
     total_revenue = sales_df["revenue"].sum()
-    revenue_formula_total = (
-        total_prepaid_settled
-        + total_postpaid_settled
-        - total_prepaid_deductions
-        - total_postpaid_deductions
-        - total_return_settled
-    ) if has_split_components and total_prepaid_deductions is not None and total_postpaid_deductions is not None else total_revenue
+
+    if has_split_components and total_prepaid_deductions is not None and total_postpaid_deductions is not None:
+        # Deduction columns in Myntra sheets are stored as negative numbers.
+        # abs() ensures the subtraction is correct regardless of sign convention.
+        prepaid_ded_abs = abs(total_prepaid_deductions)
+        postpaid_ded_abs = abs(total_postpaid_deductions)
+        revenue_formula_total = (
+            total_prepaid_settled
+            + total_postpaid_settled
+            - prepaid_ded_abs
+            - postpaid_ded_abs
+            - total_return_settled
+        )
+    else:
+        revenue_formula_total = total_revenue
 
     total_cp = sales_df["cp"].sum()
     total_cost = total_cp
@@ -1215,23 +1233,25 @@ def page_overview(df, logistic_cost, ops_cost, misc_cost, commission, time_filte
             r1c1.metric("1. Prepaid Final Settled Amount Total", format_inr(total_prepaid_settled))
             r1c2.metric("2. Postpaid Final Settled Amount Total", format_inr(total_postpaid_settled))
 
+            # Deduction cols in Myntra are stored as negative — show abs for readability
+            prepaid_ded_display = abs(total_prepaid_deductions) if total_prepaid_deductions is not None else 0
+            postpaid_ded_display = abs(total_postpaid_deductions) if total_postpaid_deductions is not None else 0
+
             r2c1, r2c2 = st.columns(2)
-            r2c1.metric("3. Sum of All Deductions (Prepaid)", format_inr(total_prepaid_deductions if total_prepaid_deductions is not None else 0))
-            r2c2.metric("4. Sum of All Deductions (Postpaid)", format_inr(total_postpaid_deductions if total_postpaid_deductions is not None else 0))
+            r2c1.metric("3. Sum of All Deductions (Prepaid)", format_inr(prepaid_ded_display))
+            r2c2.metric("4. Sum of All Deductions (Postpaid)", format_inr(postpaid_ded_display))
 
             r3c1, r3c2 = st.columns(2)
-            r3c1.metric("5. prepaid_final_amount (raw column sum)", format_inr(total_prepaid_settled))
-            r3c2.metric("6. postpaid_final_amount (raw column sum)", format_inr(total_postpaid_settled))
+            r3c1.metric("5. prepaid_final_amount (sales rows sum)", format_inr(total_prepaid_settled))
+            r3c2.metric("6. postpaid_final_amount (sales rows sum)", format_inr(total_postpaid_settled))
 
             st.markdown("---")
-            prepaid_ded = total_prepaid_deductions if total_prepaid_deductions is not None else 0
-            postpaid_ded = total_postpaid_deductions if total_postpaid_deductions is not None else 0
             st.markdown(
                 f"**7. Total Revenue = "
                 f"{format_inr(total_prepaid_settled)} (Prepaid Settled)"
                 f" + {format_inr(total_postpaid_settled)} (Postpaid Settled)"
-                f" − {format_inr(prepaid_ded)} (Prepaid Deductions)"
-                f" − {format_inr(postpaid_ded)} (Postpaid Deductions)"
+                f" − {format_inr(prepaid_ded_display)} (Prepaid Deductions)"
+                f" − {format_inr(postpaid_ded_display)} (Postpaid Deductions)"
                 f" − {format_inr(total_return_settled)} (Returns)"
                 f" = {format_inr(revenue_formula_total)}**"
             )
